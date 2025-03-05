@@ -1,54 +1,43 @@
-# Project Automation for Personal Website
+# Progressive Website Updater
 
-This script automatically updates the projects section of your personal website by fetching information from your GitHub repositories.
+This project consists of a personal portfolio website and a Python script that automates its project updates. The website showcases my projects, experience, and skills, while the script automatically fetches and displays new projects from my GitHub repositories.
 
-## Setup
+## Website Overview
 
-1. Install the required dependencies:
-```bash
-pip install -r requirements.txt
-```
+The portfolio website features:
+- Clean, responsive design with modern UI elements
+- Sections for Projects, Experience, Education, and Skills
+- Interactive project showcases with GitHub links
+- Professional experience timeline
+- Technical skills and expertise display
+- Optimized image loading and smooth transitions
 
-2. Create a GitHub Personal Access Token:
-   - Go to GitHub Settings > Developer Settings > Personal Access Tokens
-   - Generate a new token with `repo` scope
-   - Copy the token
+## Automation Script
 
-3. Set the GitHub token as an environment variable:
-```bash
-export GITHUB_TOKEN='your_token_here'
-```
+The Python script automates the process of updating the website by dynamically fetching project information from GitHub repositories. It retrieves repository metadata, generates a description of the project, and parses details such as the project title, year, description, and associated image.
 
-## Adding New Projects
+### How It Works
 
-To add a new project to your website:
+The script uses the GitHub API to:
+1. Fetch all public repositories from a specified GitHub account
+2. Look for a `description.txt` file in each repository
+3. Parse the contents of the description file to extract:
+   - Project title
+   - Year/date
+   - Project description
+   - Associated image (with fallback to default.jpg)
+4. Update the website's HTML file by:
+   - Finding the projects section
+   - Adding new projects that don't already exist
+   - Maintaining consistent formatting with existing projects
+   - Adding GitHub links to both images and titles
 
-1. Create a new GitHub repository for your project
-2. Add a `description.txt` file in the root of your repository with the following format:
-```
-title: Project Title
-year: 2024 -- Present
-image: images/project-image.jpg
-description: Your project description goes here. This can be multiple lines long.
-```
+The script uses BeautifulSoup to parse and modify the HTML, ensuring that the website's structure and styling remain intact while adding new content.
 
-## Running the Script
+## Technical Details
 
-To update your website's projects section:
-
-```bash
-python update_projects.py
-```
-
-The script will:
-1. Fetch all your public GitHub repositories
-2. Look for `description.txt` files in each repository
-3. Parse the project information
-4. Update your website's HTML file with the new projects
-
-## Notes
-
-- Make sure to add project images to your website's `images` directory
-- The script will maintain the same styling and format as your existing projects
-- Projects without a valid `description.txt` file will be ignored
-- The website repository itself is excluded from the projects list
+- Uses GitHub's REST API for repository data
+- Implements HTML parsing with BeautifulSoup
+- Handles image fallbacks gracefully
+- Preserves existing project entries
+- Maintains consistent HTML structure and styling
