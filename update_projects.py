@@ -4,6 +4,7 @@ from datetime import datetime
 import re
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+import base64
 
 # Load environment variables from .env file
 load_dotenv()
@@ -27,7 +28,11 @@ def get_repositories():
         'Accept': 'application/vnd.github.v3+json'
     }
     response = requests.get(f"{GITHUB_API_BASE}/users/{GITHUB_USERNAME}/repos", headers=headers)
-    return response.json()
+    repos = response.json()
+    print(f"\nFound {len(repos)} repositories:")
+    for repo in repos:
+        print(f"- {repo['name']}")
+    return repos
 
 def get_description_file_content(repo_name):
     """Fetch description.txt content from a repository"""
@@ -41,31 +46,60 @@ def get_description_file_content(repo_name):
             headers=headers
         )
         if response.status_code == 200:
-            content = response.json()['content']
-            return content
-    except:
-        return None
-    return None
+            content = base64.b64decode(response.json()['content']).decode('utf-8')
+            print(f"\nFound description.txt in {repo_name}")
+            return content, f"https://github.com/{GITHUB_USERNAME}/{repo_name}"
+        elif response.status_code == 404:
+            print(f"No description.txt found in {repo_name}")
+        else:
+            print(f"Error checking {repo_name}: {response.status_code}")
+    except Exception as e:
+        print(f"Error checking {repo_name}: {str(e)}")
+    return None, None
 
-def parse_description(content):
+def parse_description(content, github_url):
     """Parse description.txt content into project details"""
     lines = content.split('\n')
     project = {
         'title': '',
         'year': '',
         'description': '',
-        'image': 'images/default.jpg'  # Default image
+        'image': 'images/default.jpg',  # Changed default image to default.jpg
+        'github_url': github_url
     }
     
+    current_field = None
+    description_lines = []
+    
     for line in lines:
+        line = line.strip()
+        if not line:  # Skip empty lines
+            continue
+            
         if line.startswith('title:'):
             project['title'] = line.replace('title:', '').strip()
+            current_field = None
         elif line.startswith('year:'):
             project['year'] = line.replace('year:', '').strip()
+            current_field = None
         elif line.startswith('image:'):
-            project['image'] = line.replace('image:', '').strip()
+            # Only use the specified image if it exists in the images directory
+            image_path = line.replace('image:', '').strip()
+            if os.path.exists(image_path):
+                project['image'] = image_path
+            current_field = None
         elif line.startswith('description:'):
-            project['description'] = line.replace('description:', '').strip()
+            current_field = 'description'
+            description_lines.append(line.replace('description:', '').strip())
+        elif current_field == 'description':
+            description_lines.append(line)
+    
+    project['description'] = '\n'.join(description_lines)
+    
+    print(f"Parsed project: {project['title']}")
+    print(f"Year: {project['year']}")
+    print(f"Image: {project['image']}")
+    print(f"Description length: {len(project['description'])} characters")
     
     return project
 
@@ -76,50 +110,80 @@ def update_html(projects):
     
     soup = BeautifulSoup(html_content, 'html.parser')
     
-    # Find the projects table
-    projects_table = soup.find('table', {'style': 'width:100%;border:0px;border-spacing:0px;border-collapse:separate;margin-right:auto;margin-left:auto;'})
+    # Find and remove the duplicate project entry (the one before the Projects section)
+    first_project_table = soup.find('table', {'style': 'width:100%;border:0px;border-spacing:0px;border-collapse:separate;margin-right:auto;margin-left:auto;'})
+    if first_project_table and first_project_table.find('span', {'class': 'papertitle'}):
+        first_project_table.decompose()
+    
+    # Find the projects table (the one after the "Projects" heading)
+    projects_heading = soup.find('h2', string='Projects')
+    if not projects_heading:
+        return
+    
+    # Find the table that contains the projects (it's after the heading)
+    projects_table = projects_heading.find_next('table')
     if not projects_table:
         return
     
-    # Clear existing project entries
+    # Keep track of existing project titles to avoid duplicates
+    existing_titles = set()
     for tr in projects_table.find_all('tr'):
-        if tr.find('td', {'style': 'padding:20px;width:25%;vertical-align:middle'}):
-            tr.decompose()
+        title_span = tr.find('span', {'class': 'papertitle'})
+        if title_span:
+            existing_titles.add(title_span.text.strip())
     
-    # Add new projects
+    # Add new projects that don't already exist
     for project in projects:
-        new_tr = soup.new_tag('tr')
-        
-        # Image cell
-        img_cell = soup.new_tag('td', attrs={'style': 'padding:20px;width:25%;vertical-align:middle'})
-        img_div = soup.new_tag('div', attrs={'class': 'one'})
-        img = soup.new_tag('img', attrs={'src': project['image'], 'width': '160'})
-        img_div.append(img)
-        img_cell.append(img_div)
-        new_tr.append(img_cell)
-        
-        # Content cell
-        content_cell = soup.new_tag('td', attrs={'style': 'padding:20px;width:75%;vertical-align:middle'})
-        
-        # Title
-        title = soup.new_tag('span', attrs={'class': 'papertitle'})
-        title.string = project['title']
-        content_cell.append(title)
-        content_cell.append(soup.new_tag('br'))
-        
-        # Year
-        year = soup.new_tag('em')
-        year.string = project['year']
-        content_cell.append(year)
-        content_cell.append(soup.new_tag('br'))
-        
-        # Description
-        desc = soup.new_tag('p')
-        desc.string = project['description']
-        content_cell.append(desc)
-        
-        new_tr.append(content_cell)
-        projects_table.append(new_tr)
+        if project['title'] not in existing_titles:
+            new_tr = soup.new_tag('tr')
+            
+            # Image cell
+            img_cell = soup.new_tag('td', attrs={'style': 'padding:20px;width:25%;vertical-align:middle'})
+            img_div = soup.new_tag('div', attrs={'class': 'one'})
+            
+            # Add GitHub link if available
+            if project.get('github_url'):
+                link = soup.new_tag('a', href=project['github_url'])
+                img = soup.new_tag('img', attrs={'src': project['image'], 'width': '160'})
+                link.append(img)
+                img_div.append(link)
+            else:
+                img = soup.new_tag('img', attrs={'src': project['image'], 'width': '160'})
+                img_div.append(img)
+                
+            img_cell.append(img_div)
+            new_tr.append(img_cell)
+            
+            # Content cell
+            content_cell = soup.new_tag('td', attrs={'style': 'padding:20px;width:75%;vertical-align:middle'})
+            
+            # Title with GitHub link if available
+            if project.get('github_url'):
+                title_link = soup.new_tag('a', href=project['github_url'])
+                title = soup.new_tag('span', attrs={'class': 'papertitle'})
+                title.string = project['title']
+                title_link.append(title)
+                content_cell.append(title_link)
+            else:
+                title = soup.new_tag('span', attrs={'class': 'papertitle'})
+                title.string = project['title']
+                content_cell.append(title)
+                
+            content_cell.append(soup.new_tag('br'))
+            
+            # Year
+            year = soup.new_tag('em')
+            year.string = project['year']
+            content_cell.append(year)
+            content_cell.append(soup.new_tag('br'))
+            
+            # Description
+            desc = soup.new_tag('p')
+            desc.string = project['description']
+            content_cell.append(desc)
+            
+            new_tr.append(content_cell)
+            projects_table.append(new_tr)
     
     # Write updated HTML back to file
     with open('index.html', 'w') as f:
@@ -135,11 +199,13 @@ def main():
         
         projects = []
         for repo in repos:
-            content = get_description_file_content(repo['name'])
+            content, github_url = get_description_file_content(repo['name'])
             if content:
-                project = parse_description(content)
+                project = parse_description(content, github_url)
                 if project['title'] and project['description']:
                     projects.append(project)
+        
+        print(f"\nFound {len(projects)} valid projects to display")
         
         # Update the HTML file
         update_html(projects)
